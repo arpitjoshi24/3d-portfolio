@@ -6,7 +6,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import {
-  OrbitControls,
   Text,
   MeshReflectorMaterial,
   Sparkles,
@@ -16,6 +15,7 @@ import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import * as THREE from "three";
 import Car, { type Section } from "./Car";
 import Billboard from "./Billboard";
+import ContactWall from "./Contactwall";
 
 /* ------------------------------------------------------------------ */
 /*  Palette + helpers                                                  */
@@ -51,11 +51,22 @@ function mulberry32(seed: number) {
 
 const ROAD_HALF_LENGTH = 170; // bigger map — was 110
 
+// Defined once, outside the component, so this object reference never
+// changes across re-renders — passing a fresh object literal to
+// Canvas's `camera` prop on every render causes it to be re-applied
+// each time, fighting the chase camera in Car.tsx.
+const CAMERA_CONFIG = {
+  position: [0, 3.2, 157] as [number, number, number],
+  fov: 55,
+  near: 0.1,
+  far: 700,
+};
+
 const SECTIONS: Section[] = [
   { id: "about", z: 130, range: 11 },
   { id: "skills", z: 60, range: 11 },
   { id: "projects", z: -20, range: 11 },
-  { id: "contact", z: -100, range: 11 },
+  { id: "contact", z: -150, range: 16 },
 ];
 
 const SECTION_CONTENT: Record<
@@ -463,9 +474,8 @@ function City() {
 /*  is under a billboard. Move to a stylesheet/Tailwind if you prefer. */
 /* ------------------------------------------------------------------ */
 
-function SectionOverlay({ activeId }: { activeId: string | null }) {
-  const data = activeId ? SECTION_CONTENT[activeId] : null;
-
+// The standard corner card used for About / Skills / Projects.
+function StandardOverlay({ data }: { data: (typeof SECTION_CONTENT)[string] }) {
   return (
     <div
       style={{
@@ -479,35 +489,148 @@ function SectionOverlay({ activeId }: { activeId: string | null }) {
         background: "rgba(8, 6, 20, 0.75)",
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
-        border: `1px solid ${data ? data.color : "transparent"}`,
-        boxShadow: data ? `0 0 26px ${data.color}55` : "none",
+        border: `1px solid ${data.color}`,
+        boxShadow: `0 0 26px ${data.color}55`,
         color: "#eae6ff",
         fontFamily: "'Courier New', monospace",
-        opacity: data ? 1 : 0,
-        transform: data ? "translateY(0)" : "translateY(-10px)",
-        transition: "opacity 0.35s ease, transform 0.35s ease",
         pointerEvents: "none",
       }}
     >
-      {data && (
-        <>
-          <div style={{ fontSize: 11, letterSpacing: 2, opacity: 0.55, marginBottom: 6 }}>
-            NOW ENTERING
-          </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: data.color, marginBottom: 10 }}>
-            {data.title}
-          </div>
-          <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6, fontSize: 14 }}>
-            {data.body.map((line, i) => (
-              <li key={i} style={{ marginBottom: 4 }}>
-                {line}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+      <div style={{ fontSize: 11, letterSpacing: 2, opacity: 0.55, marginBottom: 6 }}>
+        NOW ENTERING
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: data.color, marginBottom: 10 }}>
+        {data.title}
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6, fontSize: 14 }}>
+        {data.body.map((line, i) => (
+          <li key={i} style={{ marginBottom: 4 }}>
+            {line}
+          </li>
+        ))}
+      </ul>
     </div>
   );
+}
+
+// A bigger, bolder card for Contact — big red-neon title + pill
+// buttons + small icon squares in the corner, echoing project
+// showcase sites like the Clonex reference (RTFKT-style page).
+function ContactOverlay() {
+  const color = SECTION_CONTENT.contact.color;
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: "50%",
+        bottom: 90,
+        transform: "translateX(-50%)",
+        width: 380,
+        maxWidth: "calc(100vw - 48px)",
+        padding: "26px 28px",
+        borderRadius: 16,
+        background: "rgba(6, 4, 14, 0.8)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        border: `1px solid ${color}`,
+        boxShadow: `0 0 40px ${color}66`,
+        fontFamily: "'Courier New', monospace",
+        pointerEvents: "auto",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 34,
+          fontWeight: 800,
+          color,
+          letterSpacing: 1,
+          textShadow: `0 0 18px ${color}aa`,
+          marginBottom: 6,
+        }}
+      >
+        Let's Connect
+      </div>
+      <div style={{ fontSize: 13, color: "#cfd0e6", opacity: 0.85, marginBottom: 18 }}>
+        Open to freelance work, collabs, and anything weird and creative.
+      </div>
+
+      {/* pill buttons — swap hrefs for your real links */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+        <a
+          href="mailto:you@email.com"
+          style={{
+            padding: "9px 18px",
+            borderRadius: 999,
+            background: color,
+            color: "#0a0510",
+            fontWeight: 700,
+            fontSize: 13,
+            textDecoration: "none",
+          }}
+        >
+          EMAIL ME
+        </a>
+        <a
+          href="https://github.com/yourname"
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            padding: "9px 18px",
+            borderRadius: 999,
+            background: "transparent",
+            color,
+            fontWeight: 700,
+            fontSize: 13,
+            border: `1px solid ${color}`,
+            textDecoration: "none",
+          }}
+        >
+          RESUME
+        </a>
+      </div>
+
+      {/* small icon squares, bottom-right, matching the reference */}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        {[
+          { label: "gh", href: "https://github.com/yourname" },
+          { label: "in", href: "https://linkedin.com/in/yourname" },
+          { label: "tw", href: "https://twitter.com/yourname" },
+        ].map((s) => (
+          <a
+            key={s.label}
+            href={s.href}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              width: 34,
+              height: 34,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.06)",
+              color: "#cfd0e6",
+              fontSize: 11,
+              letterSpacing: 0.5,
+              textDecoration: "none",
+              border: "1px solid rgba(255,255,255,0.12)",
+            }}
+          >
+            {s.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SectionOverlay({ activeId }: { activeId: string | null }) {
+  if (activeId === "contact") return <ContactOverlay />;
+
+  const data = activeId ? SECTION_CONTENT[activeId] : null;
+  if (!data) return null;
+  return <StandardOverlay data={data} />;
 }
 
 function DriveHint({ hide }: { hide: boolean }) {
@@ -545,7 +668,7 @@ export default function CyberpunkCity() {
       <Canvas
         dpr={[1, 2]}
         gl={{ antialias: true, powerPreference: "high-performance" }}
-        camera={{ position: [0, 6, 165], fov: 55, near: 0.1, far: 700 }}
+        camera={CAMERA_CONFIG}
       >
         <color attach="background" args={["#030308"]} />
         <fog attach="fog" args={["#08031a", 18, 220]} />
@@ -562,7 +685,7 @@ export default function CyberpunkCity() {
         <City />
 
         {/* the clickable portfolio billboards */}
-        {SECTIONS.map((s) => (
+        {SECTIONS.filter((s) => s.id !== "contact").map((s) => (
           <Billboard
             key={s.id}
             z={s.z}
@@ -571,21 +694,15 @@ export default function CyberpunkCity() {
           />
         ))}
 
-        <Car 
-  position={[0, 0, 150]} 
-  rotation={THREE.MathUtils.degToRad(0)}
-  sections={SECTIONS}
-  onSectionChange={setActiveSection}
-  zLimits={[-ROAD_HALF_LENGTH + 10, ROAD_HALF_LENGTH - 10]}
-/>
+        {/* contact gets a bigger landmark instead of a small gantry sign —
+            it's the end of the road, so it doubles as "you've arrived" */}
+        <ContactWall z={-150} color={SECTION_CONTENT.contact.color} />
 
-        <OrbitControls
-          enableDamping
-          dampingFactor={0.08}
-          target={[0, 4, 150]}
-          minDistance={6}
-          maxDistance={110}
-          maxPolarAngle={Math.PI / 2.08}
+        <Car
+          position={[0, 0, 150]}
+          sections={SECTIONS}
+          onSectionChange={setActiveSection}
+          zLimits={[-ROAD_HALF_LENGTH + 10, ROAD_HALF_LENGTH - 10]}
         />
 
         <EffectComposer>

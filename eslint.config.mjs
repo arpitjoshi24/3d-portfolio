@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    {
+  files: ["components/**/*.tsx"], // wherever your r3f components live
+  rules: {
+    "react-hooks/immutability": "off",
+  },
+}
   ]),
 ]);
 
