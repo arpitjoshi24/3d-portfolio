@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
-
+import { clampToRoad } from "../layout";
 const MODEL_PATH = "/models/car/scene.gltf";
 
 // Starts the download as soon as this module loads.
@@ -201,8 +201,9 @@ export default function Car({
       const nextZ = g.position.z - Math.cos(g.rotation.y) * dir * speed * delta;
 
       // Collision: clamp to the paved road corridor instead of full physics.
-      g.position.x = THREE.MathUtils.clamp(nextX, -roadHalfWidth, roadHalfWidth);
-      g.position.z = THREE.MathUtils.clamp(nextZ, zLimits[0], zLimits[1]);
+     const c = clampToRoad(nextX, nextZ);
+g.position.x = c.x;
+g.position.z = THREE.MathUtils.clamp(c.z, zLimits[0], zLimits[1]);
     }
 
     // Proximity check: which billboard (if any) is the car under right now?
