@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
-import { clampToRoad } from "../layout";
+
 const MODEL_PATH = "/models/car/scene.gltf";
 
 // Starts the download as soon as this module loads.
@@ -99,7 +99,7 @@ function useDragLook() {
 }
 
 /* ------------------------- portfolio sections ------------------------ */
-export type Section = { id: string; z: number; range?: number };
+export type Section = { id: string; x?: number; z: number; range?: number };
 
 /* ----------------------------- the car ------------------------------ */
 
@@ -109,8 +109,11 @@ type CarProps = {
   scale?: number;
   speed?: number; // units/sec
   turnSpeed?: number; // radians/sec
-  roadHalfWidth?: number; // how far left/right of center before hitting the curb
-  zLimits?: [number, number]; // how far the car can drive before hitting the end of the road
+  roadHalfWidth?: number; // main road: how far left/right of center before hitting the curb
+  zLimits?: [number, number]; // main road: how far the car can drive before hitting the end
+  intersectionZ?: number; // z of the T-junction where branch roads split off
+  branchHalfWidth?: number; // branch roads: how far off-center before hitting their curb
+  branchLength?: number; // how far each branch road extends from the main road
   sections?: Section[];
   onSectionChange?: (id: string | null) => void;
 
@@ -134,10 +137,13 @@ export default function Car({
   position = [0, 0, 0],
   startYaw = 0,
   scale = 0.02,
-  speed = 20,
+  speed = 40,
   turnSpeed = 1.6,
   roadHalfWidth = 5.3,
   zLimits = [-140, 140],
+  intersectionZ = 60,
+  branchHalfWidth = 5.3,
+  branchLength = 70,
   sections = [],
   onSectionChange,
   followCamera = true,
@@ -200,17 +206,45 @@ export default function Car({
       const nextX = g.position.x - Math.sin(g.rotation.y) * dir * speed * delta;
       const nextZ = g.position.z - Math.cos(g.rotation.y) * dir * speed * delta;
 
-      // Collision: clamp to the paved road corridor instead of full physics.
-     const c = clampToRoad(nextX, nextZ);
-g.position.x = c.x;
-g.position.z = THREE.MathUtils.clamp(c.z, zLimits[0], zLimits[1]);
+      // Collision on a T-shaped track: valid ground is EITHER the main
+      // road (a strip along Z, fixed X width) OR the crossroad band (a
+      // strip along X, at intersectionZ) that the branch roads run
+      // along. If the proposed move lands in neither, fall back to
+      // clamping within whichever strip the car is CURRENTLY in — this
+      // is what stops the car from cutting through the corner and
+      // driving into a building at the junction.
+      const onMain = (x: number, z: number) =>
+        Math.abs(x) <= roadHalfWidth && z >= zLimits[0] && z <= zLimits[1];
+      const onCross = (x: number, z: number) =>
+        Math.abs(z - intersectionZ) <= branchHalfWidth &&
+        x >= -branchLength &&
+        x <= branchLength;
+
+      if (onMain(nextX, nextZ) || onCross(nextX, nextZ)) {
+        g.position.x = nextX;
+        g.position.z = nextZ;
+      } else if (onCross(g.position.x, g.position.z)) {
+        g.position.x = THREE.MathUtils.clamp(nextX, -branchLength, branchLength);
+        g.position.z = THREE.MathUtils.clamp(
+          nextZ,
+          intersectionZ - branchHalfWidth,
+          intersectionZ + branchHalfWidth
+        );
+      } else {
+        g.position.x = THREE.MathUtils.clamp(nextX, -roadHalfWidth, roadHalfWidth);
+        g.position.z = THREE.MathUtils.clamp(nextZ, zLimits[0], zLimits[1]);
+      }
     }
 
-    // Proximity check: which billboard (if any) is the car under right now?
+    // Proximity check: which section (if any) is the car near right
+    // now? 2D distance, since Skills/Projects now sit off to the side
+    // on their branch roads rather than on the main centerline.
     if (sections.length && onSectionChange) {
-      const nearby = sections.find(
-        (s) => Math.abs(g.position.z - s.z) < (s.range ?? 9)
-      );
+      const nearby = sections.find((s) => {
+        const dx = g.position.x - (s.x ?? 0);
+        const dz = g.position.z - s.z;
+        return Math.sqrt(dx * dx + dz * dz) < (s.range ?? 9);
+      });
       const id = nearby ? nearby.id : null;
       if (id !== activeSection.current) {
         activeSection.current = id;
@@ -225,8 +259,14 @@ g.position.z = THREE.MathUtils.clamp(c.z, zLimits[0], zLimits[1]);
         // so releasing the mouse smoothly returns to facing forward.
         if (!dragging.current) {
           const rt = 1 - Math.pow(1 - mouseReturnDamping, delta * 60);
+          /* eslint-disable react-hooks/immutability -- dragOffset is a
+             ref returned from useDragLook(); mutating its `.current`
+             inside useFrame is the standard react-three-fiber pattern
+             (the per-frame callback runs outside React's render/commit
+             cycle, so this isn't a render-time mutation). */
           dragOffset.current.x += (0 - dragOffset.current.x) * rt;
           dragOffset.current.y += (0 - dragOffset.current.y) * rt;
+          /* eslint-enable react-hooks/immutability */
         }
         // Smooth what's actually applied, so drag deltas don't feel jittery.
         const mt = 1 - Math.pow(1 - mouseLookDamping, delta * 60);
